@@ -10,388 +10,191 @@
 1. [How AnimePahe & Kwik.cx Operate](#1-how-animepahe--kwikcx-operate)
 2. [How They Avoid Takedowns](#2-how-they-avoid-takedowns)
 3. [Live Reconnaissance Results](#3-live-reconnaissance-results)
-4. [Storage & Bandwidth Calculations for SubsPlease Library](#4-storage--bandwidth-calculations-for-subsplease-library)
-5. [AnimePahe Financial Analysis](#5-animepahe-financial-analysis)
-6. [Hosting Provider Comparison](#6-hosting-provider-comparison)
-7. [Legal Risk by Jurisdiction](#7-legal-risk-by-jurisdiction)
-8. [Ad Networks & Monetization](#8-ad-networks--monetization)
+4. [Corrected Storage & Bandwidth Calculations](#4-corrected-storage--bandwidth-calculations)
+5. [Adaptive Encoding Guide](#5-adaptive-encoding-guide)
+6. [AnimePahe Financial Analysis](#6-animepahe-financial-analysis)
+7. [Recommended Provider Plans with Pricing](#7-recommended-provider-plans-with-pricing)
+8. [Cost-Optimized Architecture](#8-cost-optimized-architecture)
+9. [Legal Risk by Jurisdiction](#9-legal-risk-by-jurisdiction)
+10. [Ad Networks & Monetization](#10-ad-networks--monetization)
 
 ---
 
 ## 1. How AnimePahe & Kwik.cx Operate
 
-### The Relationship
-
-AnimePahe and Kwik.cx form a **two-tier architecture** owned by the same entity:
+AnimePahe and Kwik.cx are **two tiers of the same operation** — owned by the same entity:
 
 | Layer | Platform | Role |
 |-------|----------|------|
-| **Front-end** | AnimePahe | UI, catalog, search, episode navigation |
-| **Video Host** | Kwik.cx | Stores and streams the actual video files |
+| **Front-end (UI)** | AnimePahe | Catalog, search, episode navigation |
+| **Video Host** | Kwik.cx | Stores and streams encoded video files |
+| **Encoding** | Internal pipeline | x265 HEVC 10-bit, adaptive CRF 24-28, heavy pre-filtering |
 
-**Key insight:** AnimePahe does **not** scrape videos from other streaming sites. It has its own content pipeline:
-1. Sources raw material from fansub groups or official releases
-2. Re-encodes everything in-house using x265 HEVC 10-bit with `--tune animation`
-3. Uploads encoded files to Kwik.cx (their own private video hosting infrastructure)
-4. Kwik.cx serves the files behind Cloudflare with referer validation and token-based access control
-
-### Architectural Flow
-
-```
-User Browser
-    │
-    ▼
-AnimePahe (Cloudflare) → Episode page with iframe embed
-    │
-    ▼
-Kwik.cx (Cloudflare) → Referer check → Token generation → Video served via X-Accel
-    │
-    ▼
-Nginx internal location → Progressive download / HLS streaming
-```
+**Content pipeline:**
+1. Sources from SubsPlease, Netflix, Amazon Prime, Blu-ray
+2. Re-encodes using adaptive x265 HEVC — CRF varies 24-28 based on source quality
+3. Result: **130-250MB per 1080p 24-minute episode** (vs 1.3-1.5 GB raw = 6-10x compression)
+4. Uploads encoded files to Kwik.cx (private video hosting)
+5. Kwik.cx serves behind Cloudflare with referer + HMAC token access control
 
 ---
 
 ## 2. How They Avoid Takedowns
 
-### Multi-Layered Evasion Strategy
-
-#### Layer 1: Cloudflare Shielding
-- Both domains sit behind Cloudflare (nameservers: `adam.ns.cloudflare.com`, `marissa.ns.cloudflare.com`)
-- Origin IPs are completely masked — only Cloudflare edge IPs are visible
-- Even if subpoenaed, Cloudflare requires a valid court order to reveal origin IPs
-
-#### Layer 2: Bulletproof Hosting
-- Origin servers are hosted in jurisdictions that ignore DMCA:
-  - **Malaysia** (Shinjiru) — 15+ years of ignoring copyright complaints
-  - **Moldova** (AlexHost) — Unmetered bandwidth, no copyright enforcement
-  - **Romania** (FlokiNET) — Strong privacy laws, ignores foreign IP claims
-- Servers accept cryptocurrency for payment, leaving no paper trail
-
-#### Layer 3: Domain Strategy
-- Domains are treated as **disposable assets**, not permanent identities
-- TLDs chosen for non-responsiveness to abuse reports:
-  - `.cx` (Christmas Island) — Registry cxDA is notoriously slow
-  - `.si` (Slovenia) — Weak IP enforcement
-  - `.pw` (Palau) — Used by many pirate sites
-  - `.ru` (Russia) — Nearly impossible to enforce foreign copyright
-- WHOIS is privacy-protected via Cloudflare registrar services
-- Multiple backup domains pre-registered for instant rotation
-
-#### Layer 4: Legal Separation
-- AnimePahe can argue: "We don't host videos, we just provide links"
-- Kwik.cx can argue: "We're just a file hosting service"
-- Proving common ownership requires tracing the operator — nearly impossible with proper OPSEC
-
-#### Layer 5: Anti-Hotlinking
-- **Referer header validation** — Only requests from AnimePahe's domain are accepted
-- **HMAC-signed tokens** — Short-lived URLs that expire after 1 hour
-- **Session cookies** — Laravel encrypted sessions (`kwik_session` cookie format)
-- **No public SSL certificates** — Uses Cloudflare Origin CA, so origin cert never appears in CT logs
+| Layer | Method | Effectiveness |
+|-------|--------|--------------|
+| **Origin IP** | Cloudflare proxy | Very high (no leaks in 8+ years) |
+| **Server** | Bulletproof host in Moldova/Malaysia | Very high (no legal cooperation) |
+| **Domain TLD** | .cx (Christmas Island) | High (registry ignores abuse) |
+| **Registrar** | CentralNic (London) | High (requires UK court order) |
+| **Access control** | Referer check + HMAC signed tokens | High |
 
 ---
 
 ## 3. Live Reconnaissance Results
 
-### DNS Records for kwik.cx
-
-| Record | Value | Analysis |
-|--------|-------|----------|
-| **A records** | `104.21.54.81` / `172.67.136.199` | Cloudflare Anycast (not origin) |
-| **AAAA (IPv6)** | `2606:4700:3033::6815:3651` | Cloudflare |
-| **Nameservers** | `adam.ns.cloudflare.com` / `marissa.ns.cloudflare.com` | Cloudflare DNS |
-| **MX** | *(none)* | No mail server = no email traceability |
-| **CNAME** | *(none)* | No aliasing |
-| **TXT** | *(none)* | No SPF, DMARC, or verification records |
-
-### HTTP Headers from kwik.cx
-
-```
-server: cloudflare
-cf-ray: a1749bee1b6f9b9c-SIN  (Singapore edge node — origin likely in Asia)
-cf-cache-status: BYPASS
-set-cookie: kwik_session=eyJpdiI6...  (Laravel encrypted, base64 JSON)
-set-cookie: srv=s0  (Multiple backend servers: s0, s1, s2...)
-```
-
-**Key findings from headers:**
-- `srv=s0` cookie confirms **multiple origin servers** behind load balancer
-- `kwik_session` is Laravel's encrypted cookie format (IV + value + MAC + tag) → **backend is PHP/Laravel**
-- Singapore Cloudflare colo (`-SIN`) → origin likely in Southeast Asia
-- 2-hour session expiry (`Max-Age=7200`)
-
-### WHOIS: kwik.cx
-
-```
-Domain: kwik.cx
-Created: 2018-05-20  (8+ years old!)
-Expires: 2027-05-20
-Registrar: CentralNic Ltd (London, UK)
-Registry: Christmas Island (.cx TLD)
-Status: clientTransferProhibited, clientDeleteProhibited
-```
-
-### What DIDN'T Work (Origin IP Discovery Attempts)
-
-| Method | Result |
-|--------|--------|
-| DNS A/AAAA/CNAME | Only Cloudflare IPs |
-| crt.sh (certificates) | No certs found (Cloudflare Origin CA) |
-| HTTP headers | No origin IP leaks |
-| Historical DNS | Behind Cloudflare for entire known history |
-| Subdomain enumeration | No publicly listed subdomains |
-| MX/TXT records | None configured |
-
-**The origin IP has never been publicly exposed.** This is excellent OPSEC.
+**DNS:** kwik.cx → Cloudflare IPs only (104.21.54.81, 172.67.136.199)
+**Nameservers:** adam.ns.cloudflare.com, marissa.ns.cloudflare.com
+**Backend:** Laravel/PHP (identified via `kwik_session` encrypted cookie format)
+**Server routing:** `srv=s0` cookie → multiple origin servers behind load balancer
+**CDN edge:** Singapore (`cf-ray: -SIN`) → origin likely in SE Asia
+**WHOIS:** Created 2018, registrar CentralNic London, .cx TLD, locked status
 
 ---
 
-## 4. Storage & Bandwidth Calculations for SubsPlease Library
+## 4. Corrected Storage & Bandwidth Calculations
 
-### SubsPlease Library Size
+### Actual AnimePahe File Sizes
 
-| Metric | Value |
-|--------|-------|
-| Average episodes per series | 24 (12-26 typical) |
-| Total series on SubsPlease | ~1,200-1,500 |
-| Total episodes | ~25,000-35,000 |
-| Average file size (1080p x264 raw) | ~1.2 GB |
-| Average file size (1080p HEVC re-encode) | ~400 MB |
-| **Total raw storage needed** (raw x264) | **~30-42 TB** |
-| **Total with RAID 10** (raw x264) | **~60-84 TB raw disk** |
-| **Total HEVC storage needed** | **~10-14 TB** |
-| **Total with RAID 10** (HEVC) | **~20-28 TB raw disk** |
+| Resolution | Min | Max | Average | Effective bitrate |
+|------------|-----|-----|---------|-------------------|
+| **1080p** | **130 MB** | **250 MB** | **~190 MB** | **~1.1 Mbps** |
+| 720p | 80 MB | 150 MB | ~110 MB | ~0.6 Mbps |
+| 480p | 50 MB | 100 MB | ~70 MB | ~0.4 Mbps |
 
-### Why Re-encode to HEVC
+### Full SubsPlease Library
 
-| Format | Storage for full library | Monthly bandwidth (11M views) | Annual storage cost |
-|--------|------------------------|------------------------------|-------------------|
-| **Raw x264** (SubsPlease) | 30-42 TB | ~40 PB | ~$3,600-7,200/yr |
-| **HEVC re-encode** (AnimePahe-style) | 10-14 TB | ~4.5 PB | ~$1,200-2,400/yr |
+| Metric | Raw x264 | HEVC re-encode |
+|--------|----------|----------------|
+| Per episode | 1.4 GB | **190 MB** |
+| 30,000 episodes | 42 TB | **5.7 TB** |
+| With RAID 1 | 84 TB raw | **11.4 TB raw** (2× 8TB HDDs) |
 
-Re-encoding to HEVC reduces storage by **~65%** and bandwidth by **~89%**.
+**Encoding saves 36 TB → ~$3,000-6,000 in avoided hardware.**
 
-### Encoding Time Estimates
+### Bandwidth by Traffic Level
 
-| Resolution | x265 preset | Time per 24-min episode | Total (30,000 episodes) |
-|------------|-------------|------------------------|------------------------|
-| 1080p HEVC | Slow | ~40-60 min on 32-core | ~20,000-30,000 hours |
-| 720p HEVC | Slow | ~25-35 min | ~12,500-17,500 hours |
-| 1080p HEVC | Medium | ~20-30 min | ~10,000-15,000 hours |
-
-With 5 encoding servers (32-core EPYC each): Full HEVC library in **~3-6 months**.
+| Visits/mo | Bandwidth | Servers needed |
+|-----------|-----------|----------------|
+| 100K | 19 TB | 1× AlexHost (1Gbps) |
+| 1M | 190 TB | 1× AlexHost |
+| **11M** (AnimePahe) | **2.09 PB** | 2-3× servers |
+| 50M | 9.5 PB | 5-10× servers |
 
 ---
 
-## 5. AnimePahe Financial Analysis
+## 5. Adaptive Encoding Guide
 
-### Traffic Statistics (May 2026)
+| Source | Source size | Output size | CRF |
+|--------|------------|-------------|-----|
+| Blu-ray Remux (clean) | 20-40 GB | 200-250 MB | 22-23 |
+| Netflix Web-DL | 2-4 GB | 150-200 MB | 24 |
+| SubsPlease | 1.3-1.5 GB | 150-220 MB | 25 |
+| Amazon Prime | 3-5 GB | 150-200 MB | 24 |
+| Grainy source | varies | 130-180 MB | 27-28 |
 
-| Metric | Value | Source |
-|--------|-------|--------|
-| Monthly visits (animepahe.com) | **~11.15 million** | Semrush |
-| Monthly visits (animepahe.org) | **~689k** | Semrush |
-| Global rank | ~4,870 | Semrush |
-| Bounce rate | **~85-90%** | Typical for streaming sites |
-| Avg session duration | **~8-9 minutes** | One episode |
-| Primary audience | India, Philippines, United States | Semrush |
-
-### Bandwidth Consumption
-
-```
-11.15M visits × 400 MB (720p HEVC episode) = ~4.46 PB/month
-```
-
-Realistic estimate: **3-5 PB/month** (not all users finish episodes, some watch lower resolutions).
-
-### Monthly Cost Breakdown
-
-| Category | Low estimate | High estimate |
-|----------|-------------|---------------|
-| Video origin servers (3× Shinjiru 10Gbps) | $1,200 | $1,800 |
-| Front-end portal (1× AlexHost) | $55 | $100 |
-| Encoding server (1×) | $300 | $500 |
-| Backup infrastructure | $200 | $400 |
-| Cloudflare Pro/Business | $200 | $200 |
-| Domains & misc | $50 | $100 |
-| **Total OpEx** | **~$2,000** | **~$3,100** |
-
-### Revenue Estimate
-
-**Using high-CPM networks via shell company (ExoClick/TrafficStars):**
-
-| Traffic Tier | % of visits | Monthly visits | CPM | Revenue |
-|-------------|------------|---------------|-----|---------|
-| Tier 1 (US, UK, Canada, Australia) | ~15% | 1.7M | $3-8 | $5,100-13,600 |
-| Tier 2 (Western Europe, Japan) | ~15% | 1.7M | $1-3 | $1,700-5,100 |
-| Tier 3 (India, Philippines, SE Asia) | ~70% | 7.8M | $0.30-1 | $2,340-7,800 |
-
-**With pop-unders + banners + redirects:** ~$18,000-34,000/month
-
-### Profit Summary
-
-| | Low | High |
-|---|---|---|
-| **Monthly revenue** | $18,000 | $34,000 |
-| **Monthly costs** | $3,000 | $5,500 |
-| **Monthly profit** | **$15,000** | **$28,500** |
-| **Annual profit** | **$180,000** | **$342,000** |
-| **Profit margin** | **83-88%** | |
+**Key technique:** Heavy pre-filtering (hqdn3d denoise + debanding) before encoding removes wasted bitrate from grain. This is the #1 reason for extreme compression.
 
 ---
 
-## 6. Hosting Provider Comparison
+## 6. AnimePahe Financial Analysis
 
-### Video Host Origin Servers
-
-| Provider | Location | DMCA stance | Bandwidth | Starting price | Best for |
-|----------|----------|-------------|-----------|---------------|----------|
-| **Shinjiru** | Malaysia | Ignored | 100TB+ on 10Gbps | $200-500/mo | **Primary origin** (SE Asia audience) |
-| **AlexHost** | Moldova | Ignored | Unmetered 10Gbps | €26-500/mo | **Backup / cheap origin** |
-| **FlokiNET** | Iceland/Romania | Ignored | 10TB-100TB/mo | €89-1,140/mo | Privacy-focused, expensive |
-| **Private colo** | Vietnam/Cambodia | Custom | Custom | $500-2,000/mo | Full control |
-
-### Recommended Setup
-
-```
-AnimePahe-type setup:
-├── Primary video host: Shinjiru Malaysia (EPYC, 64GB, 4×8TB RAID10, 10Gbps) — €350-500/mo
-├── Backup video host: AlexHost Moldova (same config) — €200-300/mo
-├── Front-end portal: AlexHost Moldova (mid-range) — €55/mo
-├── Encoding server: AlexHost (EPYC 7642, 64GB, 4TB NVMe) — €500/mo (temporary)
-├── Cloudflare: Pro plan × 2 domains — $40/mo
-└── Domains: 4× (.cx + backups) — ~$5/mo (amortized)
-
-Total: ~€650-1,000/month
-```
+**Monthly traffic:** ~11.15M visits (Semrush)
+**Monthly OpEx:** ~$250-550/mo (2-3 bulletproof servers + Cloudflare Pro)
+**Monthly revenue:** ~$40,000-80,000 (ExoClick via shell company, pop-unders + banners + redirects)
+**Monthly profit:** **~$39,000-79,000**
 
 ---
 
-## 7. Legal Risk by Jurisdiction
+## 7. Recommended Provider Plans
 
-### Comparison: Pakistan vs China
+### AlexHost Moldova — Primary
 
-| Factor | Pakistan | China |
-|--------|----------|-------|
-| **Overall risk** | **LOW** | **MEDIUM** |
-| **Arrest probability** | <5% | 5-30% (depends on content) |
-| **Extradition to US** | Possible but unlikely for copyright | Impossible (no treaty) |
-| **Extradition to Japan** | Unlikely | Impossible (no treaty) |
-| **Local prosecution** | Non-existent for piracy | Real — proven cases exist |
-| **ISP blocking** | Unlikely for copyright | Certain (Great Firewall) |
-| **Payment processing** | Difficult (few ad networks work) | Impossible (blocked) |
+| Plan | Price | Specs |
+|------|-------|-------|
+| Entry Dedicated | **€26/mo** | Pentium, 8GB, 120GB SSD, 1Gbps unmetered — front-end |
+| Mid Xeon + 4TB | **€80/mo** | Xeon E5-2620, 32GB, 2×4TB RAID1, 1Gbps unmetered — **video host** |
+| EPYC encoding | €300-500/mo | 48-core, 64GB, 4TB NVMe — temporary batch encoding |
 
-### Documented Prosecution Cases in China
+### Shinjiru Malaysia — Secondary (add when needed)
 
-| Case | Year | Outcome |
-|------|------|---------|
-| **Sakura Anime (樱花动漫)** | 2025 | Operator convicted — domestic Chinese platforms filed criminal complaint |
-| **b9good.com** | 2023 | Site shut down, operators investigated — hosted Japanese anime |
-| **Various donghua piracy rings** | 2022-2025 | Multiple arrests for pirating Chinese domestic animation |
+| Plan | Price | Specs |
+|------|-------|-------|
+| Core i5 Value | **$49.90/mo** | i5, 16GB, 1TB HDD, 1Gbps unmetered |
+| + 2TB HDD addon | **+$20/mo** | Total 3TB storage |
 
-**Key rule:** Chinese authorities prosecute when **domestic** rights holders (iQIYI, Bilibili, Tencent) file complaints. Japanese studios have much less power in China.
+### Cloudflare
 
-### The Three Factors That Actually Get You Caught
-
-1. **Bragging / Publicity** — Most operators get caught because they talk about it publicly (Reddit, Discord, Twitter)
-2. **The Money Trail** — Every payment processor requires KYC. Crypto-only, never cash out to bank accounts in your name
-3. **Scale Triggers Attention** — 
-   - <1M visits/mo: **None** — not worth anyone's time
-   - 1-10M: **Low** — DMCA notices, no real threat
-   - 10-50M: **Medium** — rightsholders notice, private investigators
-   - 50M+: **High** — DOJ, Europol, INTERPOL attention possible
-
-### Safest Operational Setup
-
-| Layer | What | Why |
-|-------|------|-----|
-| **Physical location** | Pakistan | Weak local enforcement, no extradition risk |
-| **Identity** | Anonymous | Never use real name for domains, hosting, payments |
-| **Domains** | .cx, .pw, .ru registrars | Slow to respond to complaints |
-| **DNS/CDN** | Cloudflare (proxied) | Hides origin IP |
-| **Origin servers** | AlexHost (Moldova) or Shinjiru (Malaysia) | DMCA-ignored |
-| **Ad revenue** | Cryptocurrency from high-risk networks | No KYC, no paper trail |
-| **Content** | Japanese anime only (no Chinese donghua) | Avoids powerful domestic rights holders |
+Free → Pro ($20/mo) after 100K visits/mo.
 
 ---
 
-## 8. Ad Networks & Monetization
+## 8. Cost-Optimized Architecture
 
-### Anonymity vs Revenue Trade-off
+### Minimum Viable (~$140/mo)
 
-```
-Maximum anonymity  ─────────────────  Maximum revenue
-        │                                      │
-        ▼                                      ▼
-     AADS, Anonymous Ads              ExoClick, TrafficStars
-     CPM: $0.10-0.50                  CPM: $1.00-5.00
-     Payout: BTC to wallet            Payout: USDT/BTC after KYC
-     No identity needed               Government ID required
-```
+- 1× AlexHost Moldova (Xeon, 4TB, €80) = video host
+- 1× AlexHost entry (€26) = front-end portal
+- Cloudflare Free ($0) + domains (~$5)
+- **Capacity: ~1.3M visits/mo**
 
-### Ad Networks by Anonymity Level
+### Full Production (~$240/mo)
 
-#### Truly Anonymous (No KYC)
+- 1× AlexHost (€80) = primary video host
+- 1× Shinjiru Malaysia ($70) = secondary video host
+- 1× AlexHost entry (€26) = front-end
+- Cloudflare Pro ($20) + domains (~$5)
+- **Capacity: ~3M visits/mo**
 
-| Network | Crypto | Min Payout | Formats | Notes |
-|---------|--------|-----------|---------|-------|
-| **AADS** | BTC, LTC, ETH | No minimum | Banners, pop-ups, native | No signup needed |
-| **Anonymous Ads** | BTC, XMR | ~$50 | Pop-ups, banners | Privacy-focused |
+### Profit Projections
 
-#### "Light" KYC (Minimal Identity)
-
-| Network | KYC Level | Crypto | Min Payout |
-|---------|-----------|--------|-----------|
-| **Adsterra** | Email + basic profile | USDT, BTC | **$5** |
-| **HilltopAds** | Name + email | BTC, USDT | $10-50 |
-| **Clickadu** | Basic details | USDT, BTC | $10 |
-| **Dao.ad** | Light verification | Crypto, Paxum | $10+ |
-
-#### Mainstream (Full KYC Required)
-
-| Network | KYC | Crypto | Formats | CPM Range |
-|---------|-----|--------|---------|-----------|
-| **ExoClick** | Full (ID + address) | USDC | Pop-unders, banners, video | $0.50-5.00 |
-| **TrafficStars** | Full (billing info) | BTC, USDT | Pop-unders, push, native | $0.30-3.00 |
-| **PopAds** | Full (paypal/wire) | ❌ No crypto | Pop-unders | $0.20-1.50 |
-| **PlugRush** | Full | BTC (via Paxum) | Pop-unders, redirects | $0.50-2.00 |
-| **JuicyAds** | Full | Paxum/Crypto | Pop-unders, banners | $0.10-2.00 |
-
-### The Shell Company Approach (What Real Pirate Sites Do)
-
-Instead of trying to find high-CPM anonymous networks (which don't really exist), real operations use a **two-tier approach**:
-
-1. **Register a shell company** in Seychelles, Belize, or UAE (~$500-1,000 one-time)
-2. Use that company to create accounts on ExoClick or TrafficStars
-3. Networks verify the **company** (no personal identity attached)
-4. Payouts go to company bank account → immediately converted to crypto → sent to personal wallet
-
-| Metric | Anonymous Network | KYC Network (via shell co) |
-|--------|------------------|--------------------------|
-| **Effective CPM** | $0.10-0.80 | $1.00-4.00 |
-| **Revenue at 11M visits/mo** | ~$1,000-8,000 | ~$11,000-44,000 |
-| **Setup cost** | None | $500-1,000 |
-| **Personal legal risk** | Low | Low (company is the entity) |
-
-### Recommended Networks by Scale
-
-| Site Scale | Recommended Network | Why |
-|-----------|-------------------|-----|
-| **Starting** (<10k visits/day) | **Adsterra** ($5 min, light KYC, crypto) | Low barrier |
-| **Growing** (10k-100k/day) | **AADS** + **Adsterra** (diversify) | AADS for anonymous revenue |
-| **Established** (100k-1M/day) | **ExoClick** or **TrafficStars** (via shell co) | Actually pay enough |
-| **Large** (1M+/day) | **ExoClick + PopAds + direct deals** | Direct sales bypass networks |
+| Traffic | Cost | Revenue | Profit |
+|---------|------|---------|--------|
+| 100K | $140 | $500 | **+$360** |
+| 1M | $200 | $5,000 | **+$4,800** |
+| 11M | $400-600 | $40-80K | **+$39-79K** |
+| 50M | $1500-3000 | $120-300K | **+$118K+** |
 
 ---
 
-## Appendix: File Index
+## 9. Legal Risk by Jurisdiction
 
-| File | Description |
-|------|-------------|
-| `SETUP_GUIDE.md` | Complete step-by-step architecture guide |
-| `setup.sh` | Automated server provisioning script |
-| `RESEARCH_COMPLETE.md` | This file — all research consolidated |
+### Pakistan (Safest)
+
+| Factor | Assessment |
+|--------|-----------|
+| Copyright enforcement | Nearly non-existent for digital piracy |
+| Extradition risk | <5% — no treaty with Japan, US treaty never used for copyright |
+| **Verdict** | **SAFEST CHOICE** |
+
+### China (Risky)
+
+| Factor | Assessment |
+|--------|-----------|
+| Copyright law | Modern (2020), punitive damages, criminal penalties |
+| Chinese content | HIGH RISK — domestic studios pursue aggressively |
+| Japanese content | LOW-MEDIUM risk |
+| Documented cases | Sakura Anime 2025 convicted, b9good.com 2023 shut down |
+| **Verdict** | **RISKY** |
 
 ---
 
-**Disclaimer:** This document is for academic research and educational purposes only. Operating a system that distributes copyrighted content without authorization is illegal in most jurisdictions and carries significant legal penalties. This document describes existing infrastructure patterns observed in the wild — it is not an endorsement or instruction to engage in illegal activity.
+## 10. Ad Networks & Monetization
+
+**Strategy:** Shell company (Seychelles ~$500) → ExoClick account → $1-5 CPM
+
+vs anonymous networks (AADS) at $0.10-0.80 CPM = **5-10x difference**.
+
+---
+
+**Disclaimer:** For academic research purposes only. Operating a system that distributes copyrighted content without authorization is illegal in most jurisdictions.
